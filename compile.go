@@ -11,7 +11,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+)
+
+var (
+	HTML_EXT = ""
 )
 
 // 编译整个网站
@@ -23,7 +28,7 @@ func Compile() error {
 
 	var layouts map[string]Mapper
 
-	payload, err := BuildPlayload("./") // payload,核心上下文的主要部分,不可变
+	payload, err := BuildPayload("./") // payload,核心上下文的主要部分,不可变
 	if err != nil {
 		log.Println("Build PayLoad FAIL!!")
 		return err
@@ -73,7 +78,8 @@ func Compile() error {
 		widget_assets += PrapareAssets(themeName, "widgets", topCtx)
 	}
 
-	CopyResources(themeName)
+	base_path := payload["urls"].(map[string]string)["base_path"]
+	CopyResources(base_path, themeName)
 
 	// Render Pages
 	pages := payload["db"].(map[string]interface{})["pages"].(map[string]Mapper)
@@ -162,7 +168,7 @@ func RenderInLayout(content string, layoutName string, layouts map[string]Mapper
 func BaiscHelpers(payload Mapper, helpers map[string]mustache.SectionRenderFunc, topCtx mustache.Context) {
 	var err error
 	chronological := FromCtx(topCtx, "db.posts.chronological").([]string)
-	latest_size := FromCtx(topCtx, "site.config.posts.latest").(int)
+	latest_size := int(FromCtx(topCtx, "site.config.posts.latest").(int64))
 	dict := FromCtx(topCtx, "db.posts.dictionary").(map[string]Mapper)
 	summary_lines := int(FromCtx(topCtx, "site.config.posts.summary_lines").(int64))
 	latest_posts := make([]Mapper, 0)
@@ -236,8 +242,13 @@ func BaiscHelpers(payload Mapper, helpers map[string]mustache.SectionRenderFunc,
 		if inverted {
 			return nil
 		}
-		//log.Println("Using #categories")
-		for _, categorie := range categories {
+		names := make([]string, 0)[0:0]
+		for name, _ := range categories {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			categorie := categories[name]
 			for _, node := range nodes {
 				err = node.Render(mustache.MakeContexts(categorie, ctx), w)
 				if err != nil {
@@ -253,7 +264,13 @@ func BaiscHelpers(payload Mapper, helpers map[string]mustache.SectionRenderFunc,
 		if inverted {
 			return nil
 		}
-		for _, tag := range tags {
+		names := make([]string, 0)[0:0]
+		for name, _ := range tags {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			tag := tags[name]
 			for _, node := range nodes {
 				err = node.Render(mustache.MakeContexts(tag, ctx), w)
 				if err != nil {
@@ -409,6 +426,9 @@ func WriteTo(url string, content string) {
 
 	dstPath := "compiled" + url
 	os.MkdirAll(filepath.Dir(dstPath), os.ModePerm)
+	if HTML_EXT != "" {
+		content += HTML_EXT
+	}
 	ioutil.WriteFile(dstPath, []byte(content), os.ModePerm)
 }
 
@@ -443,7 +463,7 @@ func PrapareAssets(theme string, layoutName string, topCtx mustache.Context) str
 				if strings.HasPrefix(stylesheet, "http://") || strings.HasPrefix(stylesheet, "https:") {
 					assets = append(assets, fmt.Sprintf("<link href=\"%s\" type=\"text/css\" rel=\"stylesheet\" media=\"all\">", stylesheet))
 				} else {
-					assets = append(assets, fmt.Sprintf("<link href=\"%s/%s\" type=\"text/css\" rel=\"stylesheet\" media=\"all\">", "/assets/twitter/widgets", stylesheet))
+					assets = append(assets, fmt.Sprintf("<link href=\"%s/%s\" type=\"text/css\" rel=\"stylesheet\" media=\"all\">", "/assets/"+theme+"/widgets", stylesheet))
 				}
 			}
 		}
@@ -471,7 +491,7 @@ func PrapareAssets(theme string, layoutName string, topCtx mustache.Context) str
 				if strings.HasPrefix(javascript, "http://") || strings.HasPrefix(javascript, "https:") {
 					assets = append(assets, fmt.Sprintf("<script src=\"%s\"></script>", javascript))
 				} else {
-					assets = append(assets, fmt.Sprintf("<script src=\"%s/%s\"> </script>", "/assets/twitter/widgets/", javascript))
+					assets = append(assets, fmt.Sprintf("<script src=\"%s/%s\"> </script>", "/assets/"+theme+"/widgets", javascript))
 				}
 			}
 		}
@@ -484,11 +504,11 @@ func PrapareAssets(theme string, layoutName string, topCtx mustache.Context) str
 	return rs
 }
 
-func CopyResources(themeName string) {
-	copyDir("others", "compiled")
-	copyDir("media", "compiled/assets/media")
-	copyDir("themes/"+themeName, "compiled/assets/"+themeName)
-	copyDir("widgets", "compiled/assets/widgets")
+func CopyResources(base_path string, themeName string) {
+	copyDir("others", "compiled"+base_path)
+	copyDir("media", "compiled"+base_path+"assets/media")
+	copyDir("themes/"+themeName, "compiled"+base_path+"/assets/"+themeName)
+	copyDir("widgets", "compiled"+base_path+"/assets/widgets")
 }
 
 func copyDir(src string, target string) error {
@@ -581,6 +601,7 @@ func MakeSummary(post Mapper, lines int, topCtx mustache.Context) string {
 }
 
 func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Context, widgets []Widget) {
+	base_path := FromCtx(topCtx, "urls.base_path").(string)
 	summary_lines := int(FromCtx(topCtx, "site.config.posts.summary_lines").(int64))
 	per_page := pgCnf.Int("per_page")
 	if per_page < 2 {
@@ -598,6 +619,7 @@ func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Co
 
 	chronological, _ := FromCtx(topCtx, "db.posts.chronological").([]string)
 	dictionary, _ := FromCtx(topCtx, "db.posts.dictionary").(map[string]Mapper)
+	siteTitle, _ := FromCtx(topCtx, "site.title").(string)
 
 	page_count := len(chronological)/per_page + 1
 	if len(chronological)%per_page == 0 {
@@ -609,7 +631,7 @@ func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Co
 		pn := make(Mapper)
 		pn["page_number"] = i + 1
 		pn["name"] = fmt.Sprintf("%d", i+1)
-		pn["url"] = fmt.Sprintf("%s%d/", namespace, i+1)
+		pn["url"] = fmt.Sprintf("%s%d/", base_path+namespace, i+1)
 		pn["is_active_page"] = false
 		paginator_navigation[i] = pn
 	}
@@ -622,7 +644,7 @@ func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Co
 	for i, post_id := range chronological {
 		if i != 0 && i%per_page == 0 {
 			current_page_number++
-			log.Printf("Rendering page #%d with %d posts", current_page_number, len(one_page))
+			//log.Printf("Rendering page #%d with %d posts", current_page_number, len(one_page))
 			posts_ctx["current_page_number"] = current_page_number
 			posts_ctx["paginator"] = one_page
 			if current_page_number >= 2 {
@@ -632,7 +654,7 @@ func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Co
 			widgetCtx := PrapareWidgets(widgets, make(Mapper), topCtx)
 			renderOnePager(paginator_navigation[current_page_number-1].String("url"), layout, layouts,
 				mustache.MakeContexts(map[string]interface{}{"posts": posts_ctx,
-					"page": map[string]interface{}{}}, topCtx, widgetCtx))
+					"page": map[string]interface{}{"title": fmt.Sprintf("%s Page %d", siteTitle, current_page_number)}}, topCtx, widgetCtx))
 			one_page = one_page[0:0]
 		}
 		post := dictionary[post_id]
@@ -641,7 +663,7 @@ func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Co
 	}
 	if len(one_page) > 0 {
 		current_page_number++
-		log.Printf("Rendering page #%d with %d post(s)", current_page_number, len(one_page))
+		//log.Printf("Rendering page #%d with %d post(s)", current_page_number, len(one_page))
 		posts_ctx["current_page_number"] = current_page_number
 		posts_ctx["paginator"] = one_page
 		if current_page_number >= 2 {
@@ -652,7 +674,7 @@ func renderPaginator(pgCnf Mapper, layouts map[string]Mapper, topCtx mustache.Co
 		widgetCtx := PrapareWidgets(widgets, m, topCtx)
 		renderOnePager(paginator_navigation[current_page_number-1].String("url"), layout, layouts,
 			mustache.MakeContexts(map[string]interface{}{"posts": posts_ctx,
-				"page": map[string]interface{}{}}, topCtx, widgetCtx))
+				"page": map[string]interface{}{"title": fmt.Sprintf("%s Page %d", siteTitle, current_page_number)}}, topCtx, widgetCtx))
 	}
 }
 

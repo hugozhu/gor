@@ -1,4 +1,4 @@
-package gor
+﻿package gor
 
 import (
 	"fmt"
@@ -17,11 +17,20 @@ var (
 
 const (
 	Analytics_google = `
-<script>
-    var _gaq=[['_setAccount','%s'],['_trackPageview']];
-    (function(d,t){var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
-    g.src=('https:'==location.protocol?'//ssl':'//www')+'.google-analytics.com/ga.js';
-    s.parentNode.insertBefore(g,s)}(document,'script'));
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  var pluginUrl = '//www.google-analytics.com/plugins/ga/inpage_linkid.js';
+  _gaq.push(['_require', 'inpage_linkid', pluginUrl]);
+  _gaq.push(['_setAccount', '%s']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
 </script>`
 	Comments_disqus = `
 <div id="disqus_thread"></div>
@@ -39,7 +48,7 @@ const (
 <a href="http://disqus.com" class="dsq-brlink">blog comments powered by <span class="logo-disqus">Disqus</span></a>
 `
 	tpl_google_prettify = `
-<script src="http://cdnjs.cloudflare.com/ajax/libs/prettify/188.0.0/prettify.js"></script>
+<script src="//cdnjscn.b0.upaiyun.com/libs/prettify/r298/prettify.min.js"></script>
 <script>
   var pres = document.getElementsByTagName("pre");
   for (var i=0; i < pres.length; ++i) {
@@ -48,8 +57,30 @@ const (
   prettyPrint();
 </script>
 `
-
+	Comments_duoshuo = `
+	<!-- Duoshuo Comment BEGIN -->
+	<div class="ds-thread"></div>
+	<script type="text/javascript">
+	var duoshuoQuery = {short_name:"%s"};//require,replace your short_name
+	(function() {
+					var ds = document.createElement('script');
+					ds.type = 'text/javascript';ds.async = true;
+					ds.src = 'http://static.duoshuo.com/embed.js';
+					ds.charset = 'UTF-8';
+					(document.getElementsByTagName('head')[0] 
+					|| document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+	<!-- Duoshuo Comment END -->	
+	`
 	tpl_cnzz = `<script src="http://s25.cnzz.com/stat.php?id=%d&web_id=%d" language="JavaScript"></script>`
+
+	tpl_uyan = `
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=%d"></script>
+<!-- UY END -->
+	`
 )
 
 type WidgetBuilder func(Mapper, mustache.Context) (Widget, error)
@@ -167,6 +198,7 @@ func (self CommentsWidget) Prepare(mapper Mapper, topCtx mustache.Context) Mappe
 }
 
 func BuildCommentsWidget(cnf Mapper, topCtx mustache.Context) (Widget, error) {
+	log.Println("Comments >>", cnf.Layout())
 	switch cnf.Layout() {
 	case "disqus":
 		disqus := cnf[cnf.Layout()].(map[string]interface{})
@@ -176,6 +208,21 @@ func BuildCommentsWidget(cnf Mapper, topCtx mustache.Context) (Widget, error) {
 		}
 		self := make(CommentsWidget)
 		self["comments"] = fmt.Sprintf(Comments_disqus, short_name)
+		return self, nil
+	case "uyan" :
+		uyan := cnf[cnf.Layout()].(map[string]interface{})
+		uid := uyan["uid"]
+		self := make(CommentsWidget)
+		self["comments"] = fmt.Sprintf(tpl_uyan, uid)
+		return self, nil
+	case "duoshuo":
+		duoshuo := cnf[cnf.Layout()].(map[string]interface{})
+		short_name := duoshuo["short_name"]
+		if short_name == nil {
+			return nil, errors.New("CommentsWidget Of duoshuo need short_name")
+		}
+		self := make(CommentsWidget)
+		self["comments"] = fmt.Sprintf(Comments_duoshuo, short_name)
 		return self, nil
 	}
 	// 其他的,想不到还有啥,哈哈,需要其他的就报个issue吧

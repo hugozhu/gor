@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/wendal/mustache"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,18 +13,27 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wendal/mustache"
+)
+
+var (
+	POST_NAME_DATE_RE, _ = regexp.Compile("^[0-9]{4}-[0-9]{2}-[0-9]{2}.+$")
 )
 
 // 构建PayLoad
-func BuildPlayload(root string) (payload map[string]interface{}, err error) {
+func BuildPayload(root string) (payload map[string]interface{}, err error) {
 	//检查处理的根路径
 	if root == "" {
 		root = "."
 	}
 	root, err = filepath.Abs(root)
-	root += "/"
+	if !strings.HasSuffix(root, "/") && !strings.HasSuffix(root, "\\") {
+		root += "/"
+	}
 	log.Println("root=", root)
 
 	// 开始读取配置
@@ -128,7 +136,7 @@ func BuildPlayload(root string) (payload map[string]interface{}, err error) {
 	if cnf_posts.GetInt("summary_lines") < 5 {
 		cnf_posts["summary_lines"] = 20
 	}
-	if cnf_posts.GetInt("lastest") < 5 {
+	if cnf_posts.GetInt("latest") < 5 {
 		cnf_posts["latest"] = 10
 	}
 	if cnf_posts.Layout() == "" {
@@ -373,7 +381,7 @@ func LoadPosts(root string, exclude string) (posts map[string]Mapper, err error)
 		if _exclude != nil && _exclude.Match([]byte(path[len(root+"posts/"):])) {
 			return nil
 		}
-		post, err := LoadPost(root, path)
+		post, err := LoadPost(root, path, info.Name())
 		if err != nil {
 			return err
 		}
@@ -384,16 +392,20 @@ func LoadPosts(root string, exclude string) (posts map[string]Mapper, err error)
 }
 
 // 载入特定的Post
-func LoadPost(root string, path string) (ctx Mapper, err error) {
+func LoadPost(root string, path string, fname string) (ctx Mapper, err error) {
 	ctx, err = ReadMuPage(path)
 	if err != nil {
 		return
 	}
 	if ctx["date"] == nil {
-		err = errors.New("Miss date! >> " + path)
-		return
+		if !POST_NAME_DATE_RE.Match([]byte(fname)) {
+			err = errors.New("Miss date! >> " + path)
+			return
+		}
+		ctx["date"] = fname[:10]
 	}
 	if ctx["title"] == "" {
+
 		err = errors.New("Miss title! >> " + path)
 		return
 	}
@@ -527,7 +539,13 @@ func DecodePathInfo(pathinfo string) string {
 
 // 创建permalink的配置生产路径(不限于Post)
 func CreatePostURL(db map[string]interface{}, basePath string, post map[string]interface{}) {
-	url := post["permalink"].(string)
+	var url string
+	switch post["permalink"].(type) {
+	case int64:
+		url = strconv.FormatInt(post["permalink"].(int64), 10)
+	default:
+		url = post["permalink"].(string)
+	}
 	if strings.Contains(url, ":") {
 		year, month, day := post["_date"].(time.Time).Date()
 		url = strings.Replace(url, ":year", fmt.Sprintf("%v", year), -1)
@@ -561,7 +579,13 @@ func (p Posts) Len() int {
 }
 
 func (p Posts) Less(i, j int) bool {
-	return p[i]["_date"].(time.Time).After(p[j]["_date"].(time.Time))
+	p1_time := p[i]["_date"].(time.Time)
+	p2_time := p[j]["_date"].(time.Time)
+	if p1_time.Unix() != p2_time.Unix() {
+		return p1_time.After(p2_time)
+	}
+
+	return p[i].Id() > p[j].Id()
 }
 
 func (p Posts) Swap(i, j int) {
